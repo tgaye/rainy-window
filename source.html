@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rainy Window</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+       
+  frameRate(60); }
+        #canvas-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            position: relative;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+        }
+        .info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            pointer-events: none;
+        }
+    </style>
+
+<base target="_self">
+
+
+  <button id="fs-toggle">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M1.5 1H6v1.5H3v3H1.5V1zM10 1h4.5v4.5H13v-3h-3V1zM1.5 10.5H3v3h3V15H1.5v-4.5zM13 13.5v-3h1.5V15H10v-1.5h3z"></path>
+    </svg>
+  </button>
+    <div id="canvas-container"></div>
+    <div class="info">Move mouse to interact • Click to wipe window</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.8.0/lib/p5.js"></script>
+    <script>
+        const sketch = function(p) {
+            // Configuration variables
+            let rainDrops = [];
+            let windowCondensation = [];
+            let wipedAreas = [];
+            let lightningTimer = 0;
+            let lightningActive = false;
+            let lightningIntensity = 0;
+            let isNight = true;
+            let backgroundScene;
+            let windowWidth, windowHeight;
+            let lastWipeTime = 0;
+            let wipeCooldown = 1000;
+            let rainIntensity = 0.5;
+            let condensationIntensity = 0.3;
+            
+            p.setup = function() {
+                windowWidth = p.min(p.windowWidth, 1200);
+                windowHeight = p.windowHeight * 0.8;
+                
+                let canvas = p.createCanvas(windowWidth, windowHeight);
+                canvas.parent('canvas-container');
+                canvas.mousePressed(handleWipe);
+                
+                // Initialize background scene (cityscape)
+                backgroundScene = p.createGraphics(p.width, p.height);
+                drawBackgroundScene();
+                
+                // Initialize rain drops
+                for (let i = 0; i < 200 * rainIntensity; i++) {
+                    rainDrops.push(new RainDrop());
+                }
+                
+                // Initialize condensation
+                for (let i = 0; i < 100 * condensationIntensity; i++) {
+                    windowCondensation.push(new Condensation());
+                }
+                
+                p.colorMode(p.HSB, 360, 100, 100, 1);
+            };
+            
+            p.draw = function() {
+                // Update lightning effect
+                updateLightning();
+                
+                // Draw background with lightning effect
+                if (lightningActive) {
+                    p.background(lightningIntensity * 70, 10, 100 - lightningIntensity * 90);
+                } else {
+                    p.background(isNight ? 220 : 200, 30, isNight ? 10 : 70);
+                }
+                
+                // Draw background scene (blurred through window)
+                p.image(backgroundScene, 0, 0);
+                p.fill(0, 0, 100, 0.1);
+                p.rect(0, 0, p.width, p.height);
+                
+                // Draw window frame
+                drawWindowFrame();
+                
+                // Update and draw condensation
+                updateCondensation();
+                
+                // Update and draw wiped areas
+                updateWipedAreas();
+                
+                // Update and draw rain drops
+                updateRainDrops();
+                
+                // Occasionally add new condensation
+                if (p.random() < 0.02 * condensationIntensity) {
+                    windowCondensation.push(new Condensation());
+                }
+                
+                // Occasionally add new rain drops
+                if (p.random() < 0.1 * rainIntensity) {
+                    rainDrops.push(new RainDrop());
+                }
+                
+                // Remove old wiped areas
+                wipedAreas = wipedAreas.filter(area => p.millis() - area.time < 5000);
+                
+                // Occasionally trigger lightning at night
+                if (isNight && p.random() < 0.0005) {
+                    triggerLightning();
+                }
+            };
+            
+            function drawBackgroundScene() {
+                backgroundScene.background(isNight ? 220 : 200, 30, isNight ? 20 : 80);
+                
+                // Draw city buildings
+                backgroundScene.fill(isNight ? 220 : 200, 30, isNight ? 30 : 60);
+                for (let i = 0; i < 20; i++) {
+                    let w = p.random(30, 100);
+                    let h = p.random(50, 300);
+                    let x = p.random(backgroundScene.width);
+                    backgroundScene.rect(x, backgroundScene.height - h, w, h);
+                    
+                    // Draw windows
+                    if (isNight) {
+                        backgroundScene.fill(50, 80, 100);
+                        for (let j = 0; j < 5; j++) {
+                            for (let k = 0; k < 3; k++) {
+                                if (p.random() > 0.3) {
+                                    backgroundScene.rect(
+                                        x + 5 + j * (w-10)/5,
+                                        backgroundScene.height - h + 10 + k * (h-20)/3,
+                                        5, 5
+                                    );
+                                }
+                            }
+                        }
+                        backgroundScene.fill(220, 30, 30);
+                    }
+                }
+                
+                // Draw ground
+                backgroundScene.fill(isNight ? 220 : 200, 30, isNight ? 10 : 60);
+                backgroundScene.rect(0, backgroundScene.height - 20, backgroundScene.width, 20);
+            }
+            
+            function drawWindowFrame() {
+                p.noFill();
+                p.stroke(isNight ? 220 : 200, 20, isNight ? 40 : 60);
+                p.strokeWeight(10);
+                p.rect(0, 0, p.width, p.height);
+                
+                // Draw window crossbars
+                p.strokeWeight(4);
+                p.line(p.width/2, 0, p.width/2, p.height);
+                p.line(0, p.height/2, p.width, p.height/2);
+            }
+            
+            function updateRainDrops() {
+                // Update existing drops
+                for (let i = rainDrops.length - 1; i >= 0; i--) {
+                    rainDrops[i].update();
+                    rainDrops[i].display();
+                    
+                    // Remove drops that go off screen
+                    if (rainDrops[i].pos.y > p.height) {
+                        rainDrops.splice(i, 1);
+                    }
+                }
+            }
+            
+            function updateCondensation() {
+                for (let i = windowCondensation.length - 1; i >= 0; i--) {
+                    windowCondensation[i].display();
+                    
+                    // Check if condensation is in a wiped area
+                    for (let wipe of wipedAreas) {
+                        let d = p.dist(
+                            windowCondensation[i].pos.x, 
+                            windowCondensation[i].pos.y, 
+                            wipe.x, 
+                            wipe.y
+                        );
+                        
+                        if (d < wipe.radius) {
+                            windowCondensation.splice(i, 1);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            function updateWipedAreas() {
+                for (let area of wipedAreas) {
+                    let fade = 1 - (p.millis() - area.time) / 5000;
+                    p.noFill();
+                    p.stroke(220, 10, 100, fade * 0.3);
+                    p.strokeWeight(2);
+                    p.ellipse(area.x, area.y, area.radius * 2 * fade);
+                }
+            }
+            
+            function updateLightning() {
+                if (lightningActive) {
+                    lightningIntensity = p.max(0, lightningIntensity - 0.05);
+                    if (lightningIntensity <= 0) {
+                        lightningActive = false;
+                    }
+                }
+            }
+            
+            function triggerLightning() {
+                if (!lightningActive) {
+                    lightningActive = true;
+                    lightningIntensity = 1;
+                }
+            }
+            
+            function handleWipe() {
+                let currentTime = p.millis();
+                if (currentTime - lastWipeTime > wipeCooldown) {
+                    wipedAreas.push({
+                        x: p.mouseX,
+                        y: p.mouseY,
+                        radius: p.random(50, 100),
+                        time: currentTime
+                    });
+                    lastWipeTime = currentTime;
+                }
+            }
+            
+            class RainDrop {
+                constructor() {
+                    this.reset();
+                    this.speed = p.random(5, 15);
+                    this.width = p.random(1, 2);
+                    this.length = p.random(10, 30);
+                    this.wind = p.random(-0.5, 0.5);
+                    this.alpha = p.random(0.3, 0.7);
+                }
+                
+                reset() {
+                    this.pos = p.createVector(
+                        p.random(p.width),
+                        p.random(-100, -10)
+                    );
+                }
+                
+                update() {
+                    this.pos.y += this.speed;
+                    this.pos.x += this.wind;
+                    
+                    // React to mouse position
+                    let mouseDist = p.dist(this.pos.x, this.pos.y, p.mouseX, p.mouseY);
+                    if (mouseDist < 100) {
+                        this.pos.x += (this.pos.x - p.mouseX) * 0.05;
+                    }
+                    
+                    // Wrap around screen edges
+                    if (this.pos.x < 0) this.pos.x = p.width;
+                    if (this.pos.x > p.width) this.pos.x = 0;
+                }
+                
+                display() {
+                    p.stroke(220, 30, 100, this.alpha);
+                    p.strokeWeight(this.width);
+                    p.line(
+                        this.pos.x, 
+                        this.pos.y, 
+                        this.pos.x + this.wind * 3, 
+                        this.pos.y + this.length
+                    );
+                }
+            }
+            
+            class Condensation {
+                constructor() {
+                    this.pos = p.createVector(
+                        p.random(p.width),
+                        p.random(p.height)
+                    );
+                    this.size = p.random(5, 20);
+                    this.alpha = p.random(0.1, 0.3);
+                    this.shape = p.floor(p.random(3));
+                }
+                
+                display() {
+                    p.noStroke();
+                    p.fill(220, 10, 100, this.alpha);
+                    
+                    if (this.shape === 0) {
+                        p.ellipse(this.pos.x, this.pos.y, this.size);
+                    } else if (this.shape === 1) {
+                        p.rect(this.pos.x, this.pos.y, this.size, this.size/2);
+                    } else {
+                        p.beginShape();
+                        for (let i = 0; i < 5; i++) {
+                            let angle = p.TWO_PI * i / 5;
+                            let r = this.size/2;
+                            p.vertex(
+                                this.pos.x + r * p.cos(angle),
+                                this.pos.y + r * p.sin(angle)
+                            );
+                        }
+                        p.endShape(p.CLOSE);
+                    }
+                }
+            }
+            
+            p.windowResized = function() {
+                windowWidth = p.min(p.windowWidth, 1200);
+                windowHeight = p.windowHeight * 0.8;
+                p.resizeCanvas(windowWidth, windowHeight);
+                drawBackgroundScene();
+            };
+            
+            p.keyPressed = function() {
+                if (p.key === ' ') {
+                    isNight = !isNight;
+                    drawBackgroundScene();
+                } else if (p.key === 'r') {
+                    rainIntensity = p.constrain(rainIntensity + 0.1, 0.1, 1);
+                } else if (p.key === 'R') {
+                    rainIntensity = p.constrain(rainIntensity - 0.1, 0.1, 1);
+                } else if (p.key === 'c') {
+                    condensationIntensity = p.constrain(condensationIntensity + 0.1, 0.1, 1);
+                } else if (p.key === 'C') {
+                    condensationIntensity = p.constrain(condensationIntensity - 0.1, 0.1, 1);
+                } else if (p.key === 'l') {
+                    triggerLightning();
+                }
+            };
+        };
+
+        new p5(sketch);
+    
+  // Fullscreen toggle
+  document.getElementById('fs-toggle').addEventListener('click', function() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.log('Fullscreen request failed: ', err);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  });
+  
+  // Hide fullscreen button after inactivity
+  const fsButton = document.getElementById('fs-toggle');
+  let timeout;
+  document.addEventListener('mousemove', function() {
+    fsButton.style.opacity = '0.3';
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      fsButton.style.opacity = '0';
+    }, 2000);
+  });
+  </script>
+
+              
+          
+                
+          
+              
